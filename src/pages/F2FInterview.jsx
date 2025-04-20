@@ -1,16 +1,7 @@
+// src/components/F2FInterview.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { genAI, generationConfig } from "../utils/geminiConfig"; // imported from new file
 import { v4 as uuidv4 } from "uuid";
-
-// Gemini API setup
-const apiKey = "AIzaSyCGZYD-kc9BNy94EyKRzAkifTmD1FXbJC4";
-const genAI = new GoogleGenerativeAI(apiKey);
-const generationConfig = {
-  temperature: 1,
-  topP: 0.95,
-  topK: 64,
-  maxOutputTokens: 65536,
-};
 
 function F2FInterview() {
   const videoRef = useRef(null);
@@ -26,7 +17,8 @@ function F2FInterview() {
   const [showQuestion, setShowQuestion] = useState(false);
   const [isAnswering, setIsAnswering] = useState(false);
   const [answerTranscription, setAnswerTranscription] = useState("");
-  const [qaHistory, setQaHistory] = useState([]); // New state to store Q&A
+  const [qaHistory, setQaHistory] = useState([]);
+  const [expandedQAIndex, setExpandedQAIndex] = useState(null);
 
   useEffect(() => {
     const getVideo = async () => {
@@ -94,7 +86,15 @@ function F2FInterview() {
 
       const chat = model.startChat({ history: [] });
 
-      const prompt = `Based on the following paragraph, generate 5 questions without any additional text:\n${transcription}`;
+      const prompt = `
+You are an interviewer preparing questions for a candidate based on their self-introduction.
+
+Here is the candidate's introduction:
+"${transcription}"
+
+Based on this, generate 5 technical or experience-based interview questions. 
+Do not repeat the paragraph or give any explanation. Only give the questions in simple numbered format.
+`;
 
       const result = await chat.sendMessage(prompt);
       const response = await result.response;
@@ -181,12 +181,12 @@ function F2FInterview() {
     stopRecording();
     if (recognitionRef.current) recognitionRef.current.stop();
 
-    // Save the current Q&A to history
     const currentQA = {
       question: questions[currentQuestionIndex],
       answer: answerTranscription,
     };
     setQaHistory((prev) => [...prev, currentQA]);
+    setExpandedQAIndex(null);
 
     if (currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
@@ -199,10 +199,14 @@ function F2FInterview() {
     }
   };
 
+  const toggleExpand = (index) => {
+    setExpandedQAIndex(expandedQAIndex === index ? null : index);
+  };
+
   return (
-    <div className="p-6">
+    <div className="p-6 ml-20">
+      <h1 className="items-center flex flex-col pb-5 font-semibold text-3xl">It's Time to Test Your Skills</h1>
       <div className="flex flex-wrap gap-4">
-        {/* Left: Camera and controls */}
         <div>
           <div id="camera-container">
             <video
@@ -217,19 +221,19 @@ function F2FInterview() {
 
           <button
             onClick={isRecording ? stopRecording : startRecording}
-            className="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded mt-4"
+            className="bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-2 px-4 ml-30 rounded mt-4"
           >
             {isRecording ? "Stop Recording" : "Start Recording"}
           </button>
 
           {showTranscription && transcription && (
             <div className="flex flex-col items-start mt-4">
-              <p className="bg-gray-100 p-2 rounded text-black max-w-md">
-                <strong>Transcript:</strong> {transcription}
+              <p className="bg-yellow-100 p-2 rounded text-black max-w-md">
+                <strong className="font-semibold">Transcript:</strong> {transcription}
               </p>
               <button
                 onClick={generateQuestionsFromTranscript}
-                className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 rounded mt-2"
+                className="bg-yellow-400 hover:bg-yellow-500 ml-90 text-black font-semibold py-1 px-2 rounded mt-2"
               >
                 Submit
               </button>
@@ -237,23 +241,31 @@ function F2FInterview() {
           )}
         </div>
 
-        {/* Right: Question/Answer section */}
         {showQuestion && questions && (
-          <div className="bg-green-100 p-4 rounded text-black max-w-md ml-5 w-full">
-            {/* Show previous Q&A */}
+          <div className="bg-yellow-100 p-4 rounded text-black w-[600px] ml-15">
             {qaHistory.length > 0 && (
               <div className="mb-4">
                 <h2 className="font-semibold text-lg mb-2">Previous Q&A:</h2>
                 {qaHistory.map((qa, idx) => (
                   <div key={idx} className="bg-white rounded p-2 mb-2 shadow-sm">
-                    <p><strong>Q{idx + 1}:</strong> {qa.question}</p>
-                    <p><strong>Answer:</strong> {qa.answer}</p>
+                    <button
+                      onClick={() => toggleExpand(idx)}
+                      className="text-left w-full flex justify-between items-center"
+                    >
+                      <span><strong>Q{idx + 1}:</strong> {qa.question.slice(0, 30)}...</span>
+                      <span>{expandedQAIndex === idx ? "▲" : "▼"}</span>
+                    </button>
+                    {expandedQAIndex === idx && (
+                      <div className="mt-2 pl-2">
+                        <p><strong>Question:</strong> {qa.question}</p>
+                        <p><strong>Answer:</strong> {qa.answer}</p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Current question */}
             {questions[currentQuestionIndex] && (
               <div>
                 <p key={uuidv4()}>
@@ -262,33 +274,30 @@ function F2FInterview() {
               </div>
             )}
 
-            {/* Current answer transcript */}
             {isAnswering && answerTranscription && (
               <div className="flex flex-col items-start mt-4">
-                <p className="bg-gray-100 p-2 rounded text-black max-w-md">
+                <p className="bg-yellow-100 p-2 rounded text-black max-w-md">
                   <strong>Answer Transcript:</strong> {answerTranscription}
                 </p>
               </div>
             )}
 
-            {/* Give answer button */}
             {!isAnswering && (
               <div className="mt-4">
                 <button
                   onClick={handleGiveAnswer}
-                  className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                  className="bg-yellow-400 hover:bg-yellow-500 text-black font-semibold py-2 px-4 rounded"
                 >
                   Give Answer
                 </button>
               </div>
             )}
 
-            {/* Next button */}
             {!isAnswering && answerTranscription && (
               <div className="mt-4">
                 <button
                   onClick={handleNextQuestion}
-                  className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                  className="bg-yellow-400 hover:bg-yellow-700 text-black font-bold py-2 px-4 rounded"
                 >
                   Next
                 </button>
