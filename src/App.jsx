@@ -2,17 +2,15 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import F2FInterview from './pages/F2FInterview';
-import BroKodSection from './components/BrokodSection';
-import LiveClassCards from './components/LiveClassCard';
+import HomePage from './pages/HomePage';
 
 function App() {
     return (
       <Router>
         <div>
-          <Navbar />
-          <BroKodSection/>
-          <LiveClassCards/>
+            <Navbar/>
           <Routes>
+            <Route path="/" element={<HomePage />} />
             <Route path="/f2f-interview" element={<F2FInterview />} />
           </Routes>
         </div>

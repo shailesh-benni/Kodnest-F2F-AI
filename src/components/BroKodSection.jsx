@@ -3,7 +3,7 @@ import brokodImage from '../assets/brokod.png';
 
 function BroKodSection() {
   return (
-    <div className="card bg-base-100 border border-gray-300 p-2 pt-0 pb-0 ml-30 mt-9 mr-35">
+    <div className="card bg-base-100 border border-gray-500/10 shadow-md hover:shadow-lg transition-shadow p-2 pt-0 pb-0 ml-30 mt-9 mr-35">
       <div className="flex items-center justify-between">
         <div className="w-1/1 ml-9">
           <h2 className="text-l font-bold">BroKod: Your Learning Ally at KodNest</h2>

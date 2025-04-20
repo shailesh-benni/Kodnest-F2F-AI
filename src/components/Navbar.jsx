@@ -36,7 +36,7 @@ function Navbar() {
                    <FaRupeeSign className="mr-1"/>
                     Help and Earn
                 </button>
-               <div className='flex items-center text-black hover:text-yellow-500 cursor-pointer'>
+               <div className='flex items-center text-black hover:text-yellow-500 cursor-pointer font-medium'>
                   <FaQuestionCircle className="mr-1"/>
                    Mentor Connect
                </div>
