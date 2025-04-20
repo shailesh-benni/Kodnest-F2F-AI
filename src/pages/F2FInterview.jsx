@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { v4 as uuidv4 } from "uuid";
 
 // Gemini API setup
 const apiKey = "AIzaSyCGZYD-kc9BNy94EyKRzAkifTmD1FXbJC4";
@@ -14,20 +15,21 @@ const generationConfig = {
 function F2FInterview() {
   const videoRef = useRef(null);
   const mediaRecorderRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const audioChunksRef = useRef([]);
+
   const [isRecording, setIsRecording] = useState(false);
   const [transcription, setTranscription] = useState("");
-  const recognitionRef = useRef(null);
   const [showTranscription, setShowTranscription] = useState(false);
-  const [questions, setQuestions] = useState([]);
-  const audioChunksRef = useRef([]);
+  const [questions, setQuestions] = useState(null);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [showQuestion, setShowQuestion] = useState(false);
+  const [isAnswering, setIsAnswering] = useState(false);
+  const [answerTranscription, setAnswerTranscription] = useState("");
+  const [qaHistory, setQaHistory] = useState([]); // New state to store Q&A
 
   useEffect(() => {
     const getVideo = async () => {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        console.error("getUserMedia not supported on your browser!");
-        return;
-      }
-
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: true,
@@ -48,10 +50,7 @@ function F2FInterview() {
     getVideo();
 
     return () => {
-      if (
-        mediaRecorderRef.current &&
-        mediaRecorderRef.current.state === "recording"
-      ) {
+      if (mediaRecorderRef.current?.state === "recording") {
         mediaRecorderRef.current.stop();
       }
       if (recognitionRef.current) {
@@ -60,49 +59,8 @@ function F2FInterview() {
     };
   }, []);
 
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      audioChunksRef.current = [];
-
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorderRef.current.onstop = () => {
-        console.log("Recording stopped.");
-        setShowTranscription(true);
-      };
-
-      mediaRecorderRef.current.start();
-      setIsRecording(true);
-      startSpeechRecognition();
-    } catch (error) {
-      console.error("Error starting recording:", error);
-    }
-  };
-
-  const stopRecording = () => {
-    if (
-      mediaRecorderRef.current &&
-      mediaRecorderRef.current.state === "recording"
-    ) {
-      mediaRecorderRef.current.stop();
-    }
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-    }
-    setIsRecording(false);
-  };
-
-  const startSpeechRecognition = () => {
-    const speechRecognizer = new webkitSpeechRecognition(); 
+  const startSpeechRecognition = (setTranscript) => {
+    const speechRecognizer = new window.webkitSpeechRecognition();
     speechRecognizer.continuous = false;
     speechRecognizer.interimResults = false;
     speechRecognizer.lang = "en-US";
@@ -112,7 +70,7 @@ function F2FInterview() {
       for (let i = 0; i < event.results.length; i++) {
         fullTranscript += event.results[i][0].transcript + " ";
       }
-      setTranscription(fullTranscript.trim());
+      setTranscript(fullTranscript.trim());
     };
 
     speechRecognizer.onerror = (e) => {
@@ -136,65 +94,209 @@ function F2FInterview() {
 
       const chat = model.startChat({ history: [] });
 
-      const prompt = `Based on the following paragraph, generate 5 questions:\n${transcription}`;
+      const prompt = `Based on the following paragraph, generate 5 questions without any additional text:\n${transcription}`;
 
       const result = await chat.sendMessage(prompt);
       const response = await result.response;
       const text = await response.text();
 
-      const questionsList = text
+      let questionsList = text
         .split(/\n+/)
-        .filter((line) => line.trim() !== "");
+        .map((line) => line.replace(/^\d+\.\s*/, "").trim())
+        .filter((line) => line !== "");
 
       setQuestions(questionsList);
+      setShowQuestion(true);
+      setCurrentQuestionIndex(0);
     } catch (error) {
       console.error("Error generating questions:", error);
     }
   };
 
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorderRef.current.onstop = async () => {
+        console.log("Recording stopped.");
+        setShowTranscription(true);
+        if (questions) {
+          setIsAnswering(false);
+        }
+      };
+
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+      startSpeechRecognition(setTranscription);
+    } catch (error) {
+      console.error("Error starting recording:", error);
+    }
+  };
+
+  const stopRecording = () => {
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state === "recording"
+    ) {
+      mediaRecorderRef.current.stop();
+    }
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+    setIsRecording(false);
+  };
+
+  const handleGiveAnswer = async () => {
+    setIsAnswering(true);
+    startSpeechRecognition(setAnswerTranscription);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      mediaRecorderRef.current.start();
+      mediaRecorderRef.current.onstop = () => {
+        console.log("Recording stopped.");
+        setIsAnswering(false);
+      };
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Error starting answer recording:", error);
+    }
+  };
+
+  const handleNextQuestion = () => {
+    stopRecording();
+    if (recognitionRef.current) recognitionRef.current.stop();
+
+    // Save the current Q&A to history
+    const currentQA = {
+      question: questions[currentQuestionIndex],
+      answer: answerTranscription,
+    };
+    setQaHistory((prev) => [...prev, currentQA]);
+
+    if (currentQuestionIndex < questions.length - 1) {
+      setCurrentQuestionIndex(currentQuestionIndex + 1);
+      setAnswerTranscription("");
+    } else {
+      alert("Interview completed!");
+      setCurrentQuestionIndex(0);
+      setQuestions(null);
+      setShowQuestion(false);
+    }
+  };
+
   return (
-    <div className="p-6 pl-19">
-      <div id="camera-container">
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          width="440"
-          height="480"
-        />
-      </div>
+    <div className="p-6">
+      <div className="flex flex-wrap gap-4">
+        {/* Left: Camera and controls */}
+        <div>
+          <div id="camera-container">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              width="440"
+              height="480"
+              className="rounded shadow"
+            />
+          </div>
 
-      <button
-        onClick={isRecording ? stopRecording : startRecording}
-        className="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded mt-4 ml-5"
-      >
-        {isRecording ? "Stop Recording" : "Start Recording"}
-      </button>
-
-      {showTranscription && transcription && (
-        <div className="flex flex-col items-start mt-4 ml-5">
-          <p className="bg-gray-100 p-2 rounded text-black max-w-md">
-            <strong>Transcript:</strong> {transcription}
-          </p>
           <button
-            onClick={generateQuestionsFromTranscript}
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 rounded mt-2"
+            onClick={isRecording ? stopRecording : startRecording}
+            className="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded mt-4"
           >
-            Submit
+            {isRecording ? "Stop Recording" : "Start Recording"}
           </button>
-        </div>
-      )}
 
-      {questions.length > 0 && (
-        <div className="mt-4 ml-5 bg-green-100 p-4 rounded text-black max-w-xl">
-          <strong>Generated Questions:</strong>
-          <ul className="list-disc list-inside mt-2">
-            {questions.map((q, index) => (
-              <li key={index}>{q}</li>
-            ))}
-          </ul>
+          {showTranscription && transcription && (
+            <div className="flex flex-col items-start mt-4">
+              <p className="bg-gray-100 p-2 rounded text-black max-w-md">
+                <strong>Transcript:</strong> {transcription}
+              </p>
+              <button
+                onClick={generateQuestionsFromTranscript}
+                className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 rounded mt-2"
+              >
+                Submit
+              </button>
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Right: Question/Answer section */}
+        {showQuestion && questions && (
+          <div className="bg-green-100 p-4 rounded text-black max-w-md ml-5 w-full">
+            {/* Show previous Q&A */}
+            {qaHistory.length > 0 && (
+              <div className="mb-4">
+                <h2 className="font-semibold text-lg mb-2">Previous Q&A:</h2>
+                {qaHistory.map((qa, idx) => (
+                  <div key={idx} className="bg-white rounded p-2 mb-2 shadow-sm">
+                    <p><strong>Q{idx + 1}:</strong> {qa.question}</p>
+                    <p><strong>Answer:</strong> {qa.answer}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Current question */}
+            {questions[currentQuestionIndex] && (
+              <div>
+                <p key={uuidv4()}>
+                  <strong>Question:</strong> {questions[currentQuestionIndex]}
+                </p>
+              </div>
+            )}
+
+            {/* Current answer transcript */}
+            {isAnswering && answerTranscription && (
+              <div className="flex flex-col items-start mt-4">
+                <p className="bg-gray-100 p-2 rounded text-black max-w-md">
+                  <strong>Answer Transcript:</strong> {answerTranscription}
+                </p>
+              </div>
+            )}
+
+            {/* Give answer button */}
+            {!isAnswering && (
+              <div className="mt-4">
+                <button
+                  onClick={handleGiveAnswer}
+                  className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                >
+                  Give Answer
+                </button>
+              </div>
+            )}
+
+            {/* Next button */}
+            {!isAnswering && answerTranscription && (
+              <div className="mt-4">
+                <button
+                  onClick={handleNextQuestion}
+                  className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
